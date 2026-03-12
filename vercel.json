@@ -5,8 +5,8 @@
       "destination": "https://ajscurowcmjmafcbmmyq.supabase.co/functions/v1/og-producer?slug=:slug"
     },
     {
-      "source": "/reko/:id",
-      "destination": "https://ajscurowcmjmafcbmmyq.supabase.co/functions/v1/og-reko-ring?id=:id"
+      "source": "/reko/:slug",
+      "destination": "https://ajscurowcmjmafcbmmyq.supabase.co/functions/v1/og-reko-ring?slug=:slug"
     }
   ]
 }
