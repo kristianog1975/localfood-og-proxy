@@ -8,5 +8,19 @@
       "source": "/reko/:slug",
       "destination": "https://ajscurowcmjmafcbmmyq.supabase.co/functions/v1/og-reko-ring?slug=:slug"
     }
+  ],
+  "headers": [
+    {
+      "source": "/producer/:slug",
+      "headers": [
+        { "key": "Content-Type", "value": "text/html; charset=utf-8" }
+      ]
+    },
+    {
+      "source": "/reko/:slug",
+      "headers": [
+        { "key": "Content-Type", "value": "text/html; charset=utf-8" }
+      ]
+    }
   ]
 }
