@@ -2,19 +2,11 @@
   "rewrites": [
     {
       "source": "/producer/:slug",
-      "destination": "/api/producer/[slug]"
+      "destination": "https://ajscurowcmjmafcbmmyq.supabase.co/functions/v1/og-producer?slug=:slug&og=1"
     },
     {
-      "source": "/reko/:slug",
-      "destination": "https://ajscurowcmjmafcbmmyq.supabase.co/functions/v1/og-reko-ring?slug=:slug"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/reko/:slug",
-      "headers": [
-        { "key": "Content-Type", "value": "text/html; charset=utf-8" }
-      ]
+      "source": "/reko/:id",
+      "destination": "https://ajscurowcmjmafcbmmyq.supabase.co/functions/v1/og-reko-ring?id=:id&og=1"
     }
   ]
 }
