@@ -1,12 +1,6 @@
 {
   "rewrites": [
-    {
-      "source": "/producer/:slug",
-      "destination": "https://ajscurowcmjmafcbmmyq.supabase.co/functions/v1/og-producer?slug=:slug&og=1"
-    },
-    {
-      "source": "/reko/:id",
-      "destination": "https://ajscurowcmjmafcbmmyq.supabase.co/functions/v1/og-reko-ring?id=:id&og=1"
-    }
+    { "source": "/producer/:slug", "destination": "/api/producer/[slug]" },
+    { "source": "/reko/:id", "destination": "/api/reko/[id]" }
   ]
 }
