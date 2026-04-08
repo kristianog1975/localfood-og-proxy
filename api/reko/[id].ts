@@ -1,90 +1,12 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import {
+  buildIabBreakoutHtml,
+  isIabRequest,
+  isKnownCrawler,
+  isUnknownBot,
+  USER_AGENT_VARY,
+} from "../_shared/share-routing";
 
-// ── Bot detection ────────────────────────────────────────────
-const KNOWN_CRAWLER_REGEX =
-  /facebookexternalhit|facebot|meta-externalagent|twitterbot|linkedinbot|whatsapp|telegrambot|slackbot|discordbot|pinterest|googlebot|bingbot|applebot|skypeuripreview|snapchat|tiktok/i;
-
-const IAB_REGEX = /FBAN|FBAV|FB_IAB|Instagram|FBIOS|FBSS/i;
-
-const SUSPICIOUS_BOT_REGEX =
-  /bot|crawler|spider|preview|fetch|scraper|curl|wget|headless|phantom|puppeteer|playwright|lighthouse|pagespeed|embed|unfurl|link\s?preview|og-?fetcher|meta-?inspector|site-?checker|http\.?client|java\/|externalagent/i;
-
-function isKnownCrawler(ua: string): boolean {
-  return KNOWN_CRAWLER_REGEX.test(ua);
-}
-
-function isUnknownBot(ua: string): boolean {
-  if (!ua || isKnownCrawler(ua)) return false;
-  return SUSPICIOUS_BOT_REGEX.test(ua);
-}
-
-// ── IAB breakout page ────────────────────────────────────────
-function buildIabBreakoutHtml(targetUrl: string, title: string): string {
-  return `<!DOCTYPE html>
-<html lang="no">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${title} – LocalFood.no</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    display: flex; align-items: center; justify-content: center; min-height: 100dvh;
-    background: #f8faf5; color: #1a2e05; padding: 24px; }
-  .card { text-align: center; max-width: 380px; }
-  .icon { font-size: 48px; margin-bottom: 16px; }
-  h1 { font-size: 20px; margin-bottom: 8px; }
-  p { font-size: 15px; color: #555; margin-bottom: 24px; line-height: 1.5; }
-  .btn { display: inline-block; background: #3d6b0f; color: #fff; font-size: 17px;
-    font-weight: 600; padding: 14px 32px; border-radius: 12px; text-decoration: none;
-    -webkit-tap-highlight-color: transparent; }
-  .btn:active { background: #2d5200; }
-  .sub { font-size: 12px; color: #999; margin-top: 16px; }
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="icon">🌿</div>
-  <h1>Åpner butikken...</h1>
-  <p>For en trygg handleopplevelse åpner vi LocalFood i din nettleser.</p>
-  <a class="btn" id="open-btn" href="${targetUrl}">Åpne LocalFood</a>
-  <p class="sub">Laster ikke? Trykk knappen over.</p>
-</div>
-<script>
-(function(){
-  var url = "${targetUrl}";
-  var ua = navigator.userAgent || "";
-  var isIOS = /iPhone|iPad|iPod/i.test(ua);
-  var isAndroid = /Android/i.test(ua);
-  if (isIOS) {
-    window.location.href = url.replace(/^https:\\/\\//, "x-safari-https://");
-  } else if (isAndroid) {
-    var intentUrl = "intent://" + url.replace(/^https?:\\/\\//, "") +
-      "#Intent;scheme=https;action=android.intent.action.VIEW;end";
-    window.location.href = intentUrl;
-  }
-  var btn = document.getElementById("open-btn");
-  if (btn) {
-    btn.addEventListener("click", function(e) {
-      e.preventDefault();
-      if (isIOS) {
-        window.location.href = url.replace(/^https:\\/\\//, "x-safari-https://");
-      } else if (isAndroid) {
-        var iUrl = "intent://" + url.replace(/^https?:\\/\\//, "") +
-          "#Intent;scheme=https;action=android.intent.action.VIEW;end";
-        window.location.href = iUrl;
-      } else {
-        window.open(url, "_blank");
-      }
-    });
-  }
-})();
-</script>
-</body>
-</html>`;
-}
-
-// ── Main handler ─────────────────────────────────────────────
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const startMs = Date.now();
 
@@ -100,7 +22,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).send("Missing id");
     }
 
-    // ── Fetch REKO ring from Supabase ────────────────────────
     const supabaseUrl = process.env.SUPABASE_URL!;
     const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;
 
@@ -122,7 +43,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).send("Not found");
     }
 
-    // ── Determine routing: crawler vs human ──────────────────
     const ua = (req.headers["user-agent"] as string) || "";
     const effectiveUa =
       (req.headers["x-forwarded-user-agent"] as string) || ua;
@@ -149,23 +69,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       elapsedMs: Date.now() - startMs,
     }));
 
-    // ── Human users: immediate 302 redirect ──────────────────
     if (shouldRedirect) {
-      const isIAB = IAB_REGEX.test(effectiveUa);
-      if (isIAB) {
-        const ringName = ring.name
-          .replace(/"/g, "&quot;")
-          .replace(/</g, "&lt;");
+      if (isIabRequest(effectiveUa)) {
+        const ringTitle = ring.name ? `REKO ${ring.name}` : "REKO-ring";
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-store");
-        return res.status(200).send(buildIabBreakoutHtml(canonicalUrl, `REKO ${ringName}`));
+        res.setHeader("Vary", USER_AGENT_VARY);
+        return res.status(200).send(buildIabBreakoutHtml(canonicalUrl, ringTitle));
       }
+
       res.setHeader("Cache-Control", "no-store");
-      res.setHeader("Vary", "User-Agent, X-Forwarded-User-Agent, Sec-Fetch-Mode, Sec-Fetch-Dest");
+      res.setHeader("Vary", USER_AGENT_VARY);
       return res.redirect(302, canonicalUrl);
     }
 
-    // ── Crawlers: serve OG metadata HTML ─────────────────────
     const ogImageUrl = `${supabaseUrl}/storage/v1/object/public/producer-image-bank/og/reko/${ring.id}.png`;
 
     const ringName = ring.name
@@ -212,7 +129,7 @@ if (typeof window !== "undefined" && window.location) {
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
-    res.setHeader("Vary", "User-Agent, X-Forwarded-User-Agent, Sec-Fetch-Mode, Sec-Fetch-Dest");
+    res.setHeader("Vary", USER_AGENT_VARY);
 
     return res.status(200).send(html);
   } catch (error: any) {
