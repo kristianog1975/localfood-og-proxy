@@ -29,26 +29,28 @@ function buildIabBreakoutHtml(targetUrl: string, title: string): string {
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    display: flex; align-items: center; justify-content: center; min-height: 100dvh;
-    background: #f8faf5; color: #1a2e05; padding: 24px; }
+    display: flex; align-items: flex-start; justify-content: center; min-height: 100dvh;
+    background: #f8faf5; color: #1a2e05; padding: 24px; padding-top: 12vh; }
   .card { text-align: center; max-width: 380px; }
   .icon { font-size: 48px; margin-bottom: 16px; }
   h1 { font-size: 20px; margin-bottom: 8px; }
   p { font-size: 15px; color: #555; margin-bottom: 24px; line-height: 1.5; }
+  .highlight { color: #1a2e05; font-weight: 600; }
   .btn { display: inline-block; background: #3d6b0f; color: #fff; font-size: 17px;
     font-weight: 600; padding: 14px 32px; border-radius: 12px; text-decoration: none;
     -webkit-tap-highlight-color: transparent; }
   .btn:active { background: #2d5200; }
-  .sub { font-size: 12px; color: #999; margin-top: 16px; }
+  .trust { font-size: 13px; color: #777; margin-top: 20px; line-height: 1.5; }
+  .trust .lock { font-size: 14px; }
 </style>
 </head>
 <body>
 <div class="card">
   <div class="icon">🌿</div>
-  <h1>Åpner butikken...</h1>
-  <p>For en trygg handleopplevelse åpner vi LocalFood i din nettleser.</p>
+  <h1>Du sendes til LocalFood</h1>
+  <p>For å gjennomføre bestillingen din hos <span class="highlight">${title}</span> åpner vi LocalFood i din vanlige nettleser. Dette er helt trygt.</p>
   <a class="btn" id="open-btn" href="${targetUrl}">Åpne LocalFood</a>
-  <p class="sub">Laster ikke? Trykk knappen over.</p>
+  <p class="trust"><span class="lock">🔒</span> Sikker betaling via Vipps, kort eller Klarna.<br/>Trykk «Åpne» i dialogen over for å fortsette.</p>
 </div>
 <script>
 (function(){
@@ -83,10 +85,6 @@ function buildIabBreakoutHtml(targetUrl: string, title: string): string {
 </body>
 </html>`;
 }
-
-// ── Main handler ─────────────────────────────────────────────
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const startMs = Date.now();
 
   try {
     const slug =
