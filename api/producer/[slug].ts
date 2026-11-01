@@ -8,172 +8,80 @@ import {
 } from "../_shared/share-routing";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader("Vary", USER_AGENT_VARY);
+  res.setHeader("Cache-Control", "no-store");
+
   try {
-    const requestedSlug = typeof req.query.slug === "string"
+    const slug = typeof req.query.slug === "string"
       ? req.query.slug
       : Array.isArray(req.query.slug) ? req.query.slug[0] : null;
 
-    if (!requestedSlug) {
+    if (!slug) {
       return res.status(400).send("Mangler produsentadresse");
     }
 
-    const cardMatch = requestedSlug.match(
-      /^(.+)--kort--([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i,
-    );
-    const slug = cardMatch?.[1] ?? requestedSlug;
-    const cardId = cardMatch?.[2];
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-
-    if (!supabaseUrl) {
+    const baseUrl = process.env.SUPABASE_URL;
+    if (!baseUrl) {
       return res.status(500).send("Delingstjenesten er ikke konfigurert");
     }
 
     const ua = (req.headers["x-forwarded-user-agent"] as string)
       || (req.headers["user-agent"] as string) || "";
-    const shouldServeMetadata = req.query.og === "1"
+    const metadata = req.query.og === "1"
       || isKnownCrawler(ua) || isUnknownBot(ua);
-
-    res.setHeader("Vary", USER_AGENT_VARY);
-
-    // Egne kort leses gjennom den eksisterende korttjenesten.
-    if (cardId) {
-      const endpoint = new URL(`${supabaseUrl}/functions/v1/og-producer`);
-      endpoint.searchParams.set("slug", requestedSlug);
-      if (shouldServeMetadata) endpoint.searchParams.set("og", "1");
-      if (typeof req.query.v === "string") {
-        endpoint.searchParams.set("v", req.query.v);
-      }
-
-      const response = await fetch(endpoint, {
-        headers: {
-          "User-Agent": ua,
-          "Sec-Fetch-Mode": shouldServeMetadata ? "cors" : "navigate",
-        },
-        redirect: "manual",
-      });
-
-      res.setHeader("Cache-Control", "no-store");
-      const target = response.headers.get("location");
-
-      if (response.status === 302 && target) {
-        if (isIabRequest(ua)) {
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          return res.status(200).send(
-            buildIabBreakoutHtml(target, "Se produsentens varer"),
-          );
-        }
-        return res.redirect(302, target);
-      }
-
-      res.setHeader(
-        "Content-Type",
-        response.headers.get("content-type") || "text/plain; charset=utf-8",
-      );
-      return res.status(response.status).send(await response.text());
-    }
-
-    // Vanlige produsentkort beholder det eksisterende oppslaget.
-    if (!supabaseKey) {
-      return res.status(500).send("Delingstjenesten er ikke konfigurert");
-    }
-
-    const headers = {
-      apikey: supabaseKey,
-      Authorization: `Bearer ${supabaseKey}`,
-      Accept: "application/json",
-    };
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug);
-    const filter = `${isUUID ? "id" : "slug"}=eq.${encodeURIComponent(slug)}`;
-
-    const producerResponse = await fetch(
-      `${supabaseUrl}/rest/v1/producers?select=id,farm_name,slug&${filter}&limit=1`,
-      { headers },
-    );
-    if (!producerResponse.ok) {
-      throw new Error(`Produsentoppslaget feilet (${producerResponse.status})`);
-    }
-
-    const producers = await producerResponse.json();
-    const producer = Array.isArray(producers) ? producers[0] : null;
-    if (!producer) return res.status(404).send("Fant ikke produsenten");
-
     const mode = ((req.headers["sec-fetch-mode"] as string) || "").toLowerCase();
     const dest = ((req.headers["sec-fetch-dest"] as string) || "").toLowerCase();
     const isHuman = /(mozilla\/|safari|chrome|crios|fxios|edg|firefox)/i.test(ua);
-    const shouldRedirect = !shouldServeMetadata
+    const shouldRedirect = !metadata
       && (mode === "navigate" || dest === "document" || isHuman);
 
-    const producerSlug = producer.slug || producer.id;
-    const canonicalUrl = `https://localfood.no/producer/${encodeURIComponent(producerSlug)}`;
-    const humanTargetUrl = `${canonicalUrl}?vis=produkter`;
+    // Den eksisterende tjenesten kontrollerer produsenten og kortet.
+    const endpoint = new URL(`${baseUrl}/functions/v1/og-producer`);
+    endpoint.searchParams.set("slug", slug);
+    endpoint.searchParams.set("og", "1");
+    if (typeof req.query.v === "string") {
+      endpoint.searchParams.set("v", req.query.v);
+    }
+
+    const response = await fetch(endpoint, {
+      headers: { "User-Agent": ua },
+      redirect: "manual",
+    });
+    const html = await response.text();
+
+    if (!response.ok) {
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      return res.status(response.status).send("Kunne ikke hente delingskortet");
+    }
+
+    // Finn kundelenken som korttjenesten har laget.
+    const targetMatch = html.match(/<a\s+href="(https:\/\/localfood\.no\/producer\/[^"<>]+)"/i);
+    const target = targetMatch?.[1]?.replace(/&amp;/g, "&");
 
     if (shouldRedirect) {
-      res.setHeader("Cache-Control", "no-store");
+      if (!target) {
+        return res.status(502).send("Kunne ikke finne produsentens varer");
+      }
+      const targetUrl = new URL(target);
+      if (targetUrl.origin !== "https://localfood.no"
+        || !targetUrl.pathname.startsWith("/producer/")) {
+        return res.status(502).send("Ugyldig produsentadresse");
+      }
       if (isIabRequest(ua)) {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         return res.status(200).send(
-          buildIabBreakoutHtml(humanTargetUrl, producer.farm_name || "Lokal produsent"),
+          buildIabBreakoutHtml(targetUrl.href, "Se produsentens varer"),
         );
       }
-      return res.redirect(302, humanTargetUrl);
+      return res.redirect(302, targetUrl.href);
     }
 
-    const escapeHtml = (value: string) => value
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-
-    const version = typeof req.query.v === "string"
-      ? req.query.v : Date.now().toString();
-    const image = escapeHtml(
-      `${supabaseUrl}/storage/v1/object/public/producer-image-bank/og/producer/${producerSlug}.png?v=${encodeURIComponent(version)}`,
-    );
-    const farmName = escapeHtml(producer.farm_name || "Lokal produsent");
-    const description = "Støtt din lokale produsent – bestill direkte fra gården på LocalFood.no.";
-
-    const html = `<!DOCTYPE html>
-<html lang="no">
-<head>
-<meta charset="UTF-8" />
-<title>LocalFood.no | ${farmName}</title>
-<meta name="description" content="${description}" />
-<meta property="og:title" content="LocalFood.no | ${farmName}" />
-<meta property="og:description" content="${description}" />
-<meta property="og:image" content="${image}" />
-<meta property="og:image:url" content="${image}" />
-<meta property="og:image:secure_url" content="${image}" />
-<meta property="og:image:type" content="image/png" />
-<meta property="og:image:width" content="1200" />
-<meta property="og:image:height" content="630" />
-<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
-<meta property="og:type" content="profile" />
-<meta property="og:site_name" content="LocalFood.no" />
-<meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="LocalFood.no | ${farmName}" />
-<meta name="twitter:description" content="${description}" />
-<meta name="twitter:image" content="${image}" />
-<link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
-</head>
-<body>
-<p>Se produsenten: <a href="${escapeHtml(humanTargetUrl)}">${farmName} på LocalFood</a>.</p>
-<script>
-if (typeof window !== "undefined" && window.location) {
-  setTimeout(function() {
-    window.location.replace(${JSON.stringify(humanTargetUrl)});
-  }, 800);
-}
-</script>
-</body>
-</html>`;
-
+    // Vercel må sende dette som en nettside, ikke som ren tekst.
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
     return res.status(200).send(html);
   } catch (error) {
     console.error("Kunne ikke hente produsentens delingskort:", error);
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(500).json({ error: "Kunne ikke hente delingskortet" });
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    return res.status(500).send("Kunne ikke hente delingskortet");
   }
 }
